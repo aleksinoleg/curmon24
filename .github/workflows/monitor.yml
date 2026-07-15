@@ -37,7 +37,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          ALERT_THRESHOLD: "0.15"
+          ALERT_THRESHOLD: ${{ vars.ALERT_THRESHOLD || '0.15' }}
 
       - name: Commit data
         run: |

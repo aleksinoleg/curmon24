@@ -35,7 +35,7 @@ STATE_FILE = DATA_DIR / "state.json"
 LOG_FILE = DATA_DIR / "rates.csv"
 DATA_DIR.mkdir(exist_ok=True)
 
-ALERT_THRESHOLD = float(os.environ.get("ALERT_THRESHOLD", "0.15"))  # UAH per USD
+ALERT_THRESHOLD = float(os.environ.get("ALERT_THRESHOLD", "0.01"))  # UAH per USD
 
 HEADERS = {
     "User-Agent": (

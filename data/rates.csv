@@ -1,3 +1,5 @@
 timestamp,source,buy_bid,sell_ask
 2026-07-15 10:16,privat:pubinfo:cashless,44.6000,45.0451
 2026-07-15 10:16,interbank:minfin:table,44.8000,44.8500
+2026-07-15 10:58,privat:pubinfo:cashless,44.6000,45.0451
+2026-07-15 10:58,interbank:minfin:table,44.8000,44.8500

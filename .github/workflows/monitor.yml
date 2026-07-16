@@ -1,7 +1,7 @@
 name: rate-monitor
 
 on:
-  schedule:
+  #schedule:
     # NOTE: cron is in UTC. Kyiv = UTC+3 (summer) / UTC+2 (winter).
     # Interbank session (weekdays, ~09:00–17:00 Kyiv): poll every 15 min
     #- cron: "*/15 6-15 * * 1-5"

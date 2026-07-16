@@ -1,0 +1,182 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: curmon24 — UAH/USD rate monitor (scheduled Lambda)
+
+Parameters:
+
+  DeploymentS3Bucket:
+    Type: String
+    Description: CI S3 bucket holding the Lambda zip package
+
+  DeploymentS3Key:
+    Type: String
+    Description: S3 path (prefix) to the Lambda zip package. A fresh timestamped
+      value each deploy causes the Lambda code to update.
+
+  S3DataBucketName:
+    Type: String
+    Description: Name of the S3 bucket that stores state.json and rates.csv
+
+  TelegramBotToken:
+    Type: String
+    Description: Telegram bot token used to send notifications
+    NoEcho: true
+
+  TelegramChatId:
+    Type: String
+    Description: Telegram chat ID that receives notifications
+
+  AlertThreshold:
+    Type: String
+    Description: Interbank move (UAH per USD) that triggers an alert
+    Default: "0.15"
+
+Resources:
+
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref S3DataBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+
+  MonitorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DataBucketAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${S3DataBucketName}/*"
+
+  MonitorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-monitor"
+      Runtime: python3.13
+      Handler: monitor.lambda_handler
+      Role: !GetAtt MonitorLambdaRole.Arn
+      Code:
+        S3Bucket: !Ref DeploymentS3Bucket
+        S3Key: !Sub "${DeploymentS3Key}/Lambda.zip"
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref S3DataBucketName
+          DATA_DIR: /tmp/data
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotToken
+          TELEGRAM_CHAT_ID: !Ref TelegramChatId
+          ALERT_THRESHOLD: !Ref AlertThreshold
+      Timeout: 60
+      MemorySize: 256
+      Description: Polls PrivatBank/interbank USD rates and notifies via Telegram
+
+  # ---- EventBridge schedule (UTC), replicating the old GitHub cron windows ----
+
+  # Interbank session (Mon-Fri ~09:00-18:00 Kyiv): every 15 min
+  SessionScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Interbank session polling — every 15 min on weekdays
+      ScheduleExpression: cron(0/15 6-15 ? * MON-FRI *)
+      State: ENABLED
+      Targets:
+        - Id: MonitorFunction
+          Arn: !GetAtt MonitorFunction.Arn
+
+  # Evenings: every 2 hours
+  EveningScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Evening polling — every 2 hours
+      ScheduleExpression: cron(7 16-23/2 ? * * *)
+      State: ENABLED
+      Targets:
+        - Id: MonitorFunction
+          Arn: !GetAtt MonitorFunction.Arn
+
+  # Nights: every 2 hours
+  NightScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Night polling — every 2 hours
+      ScheduleExpression: cron(7 0-5/2 ? * * *)
+      State: ENABLED
+      Targets:
+        - Id: MonitorFunction
+          Arn: !GetAtt MonitorFunction.Arn
+
+  # Weekends: every 2 hours
+  WeekendScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Weekend polling — every 2 hours
+      ScheduleExpression: cron(7 6-15/2 ? * SUN,SAT *)
+      State: ENABLED
+      Targets:
+        - Id: MonitorFunction
+          Arn: !GetAtt MonitorFunction.Arn
+
+  SessionSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt MonitorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SessionScheduleRule.Arn
+
+  EveningSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt MonitorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EveningScheduleRule.Arn
+
+  NightSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt MonitorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt NightScheduleRule.Arn
+
+  WeekendSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt MonitorFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt WeekendScheduleRule.Arn
+
+Outputs:
+
+  MonitorFunctionName:
+    Description: Name of the rate-monitor Lambda function
+    Value: !Ref MonitorFunction
+    Export:
+      Name: !Sub ${AWS::StackName}-MonitorFunctionName
+
+  DataBucketName:
+    Description: S3 bucket storing state.json and rates.csv
+    Value: !Ref DataBucket
+    Export:
+      Name: !Sub ${AWS::StackName}-DataBucketName

@@ -30,10 +30,12 @@ from bs4 import BeautifulSoup
 # --------------------------------------------------------------------------- config
 
 KYIV = ZoneInfo("Europe/Kyiv")
-DATA_DIR = Path(__file__).parent / "data"
+# DATA_DIR is env-configurable so Lambda can point it at the only writable path
+# (/tmp); locally it defaults to the repo's data/ dir as before.
+DATA_DIR = Path(os.environ.get("DATA_DIR", Path(__file__).parent / "data"))
 STATE_FILE = DATA_DIR / "state.json"
 LOG_FILE = DATA_DIR / "rates.csv"
-DATA_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 ALERT_THRESHOLD = float(os.environ.get("ALERT_THRESHOLD", "0.01"))  # UAH per USD
 
@@ -255,6 +257,41 @@ def main():
         save_state(state)
     else:
         print("state:", json.dumps(state, indent=2, ensure_ascii=False))
+
+
+# --------------------------------------------------------------------------- lambda
+
+
+def lambda_handler(event, context):
+    """AWS Lambda entrypoint.
+
+    State (state.json) and the rate log (rates.csv) live in an S3 bucket instead
+    of git. S3 is the source of truth: we pull both objects into DATA_DIR before
+    running, then push them back afterwards. main() itself is unchanged.
+    """
+    import boto3  # provided by the Lambda runtime; not needed for local runs
+
+    bucket = os.environ["DATA_BUCKET"]
+    s3 = boto3.client("s3")
+
+    files = {"state.json": STATE_FILE, "rates.csv": LOG_FILE}
+
+    # Pull current state/log; a missing object means a fresh start.
+    for key, path in files.items():
+        path.unlink(missing_ok=True)  # drop anything left in a warm /tmp
+        try:
+            s3.download_file(bucket, key, str(path))
+        except Exception as e:  # noqa: BLE001 — 404 / first run -> start fresh
+            print(f"[info] {key} not loaded from s3 ({e}); starting fresh")
+
+    main()
+
+    # Persist whatever main() wrote back to S3.
+    for key, path in files.items():
+        if path.exists():
+            s3.upload_file(str(path), bucket, key)
+
+    return {"ok": True}
 
 
 if __name__ == "__main__":

@@ -4,12 +4,12 @@ on:
   schedule:
     # NOTE: cron is in UTC. Kyiv = UTC+3 (summer) / UTC+2 (winter).
     # Interbank session (weekdays, ~09:00–17:00 Kyiv): poll every 15 min
-    - cron: "*/15 6-15 * * 1-5"
+    #- cron: "*/15 6-15 * * 1-5"
     # Evenings/nights: every 2 hours (catches Privat's morning repricing too)
-    - cron: "7 16-23/2 * * *"
-    - cron: "7 0-5/2 * * *"
+    #- cron: "7 16-23/2 * * *"
+    #- cron: "7 0-5/2 * * *"
     # Weekends: every 2 hours
-    - cron: "7 6-15/2 * * 0,6"
+    #- cron: "7 6-15/2 * * 0,6"
   workflow_dispatch: {}   # manual run button
 
 concurrency:
